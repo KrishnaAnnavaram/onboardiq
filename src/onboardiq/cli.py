@@ -68,9 +68,12 @@ def cmd_chat(args: argparse.Namespace) -> int:
             break
         if not line:
             break
-        if line in ("+", "-") and last is not None:
-            feedback.submit(last, "helpful" if line == "+" else "not_helpful")
-            print("feedback saved")
+        if line in ("+", "-"):
+            if last is None:
+                print("nothing to rate yet: ask a question first")
+            else:
+                feedback.submit(last, "helpful" if line == "+" else "not_helpful")
+                print("feedback saved")
             continue
         last = assistant.ask(line, args.role, args.level, history)
         history.append((line, last.text))
