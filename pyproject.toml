@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "onboardiq"
+version = "0.1.0"
+description = "Role- and seniority-aware onboarding RAG assistant"
+readme = "README.md"
+license = { text = "MIT" }
+authors = [{ name = "Krishna Annavaram" }]
+requires-python = ">=3.10"
+dependencies = ["numpy>=1.24"]
+
+[project.optional-dependencies]
+ui = ["streamlit>=1.32"]
+pdf = ["pypdf>=4.0"]
+dev = ["pytest>=8", "ruff"]
+all = ["streamlit>=1.32", "pypdf>=4.0"]
+
+[project.scripts]
+onboardiq = "onboardiq.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+
+[tool.ruff]
+line-length = 110

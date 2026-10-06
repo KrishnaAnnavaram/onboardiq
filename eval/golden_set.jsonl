@@ -1,0 +1,30 @@
+{"id": "all-01", "question": "What access should I request on my first day?", "role": "data_analyst", "level": "junior", "relevant": [{"source": "welcome.md", "heading": "First Week Checklist"}]}
+{"id": "all-02", "question": "Who approves production write access?", "role": "data_engineer", "level": "junior", "relevant": [{"source": "welcome.md", "heading": "First Week Checklist"}]}
+{"id": "all-03", "question": "Where should I ask about metric definitions?", "role": "data_analyst", "level": "mid", "relevant": [{"source": "welcome.md", "heading": "Who to Ask"}]}
+{"id": "all-04", "question": "How does the asynchronous stand-up work?", "role": "data_scientist", "level": "mid", "relevant": [{"source": "welcome.md", "heading": "Communication Norms"}]}
+{"id": "all-05", "question": "Can I paste personal data from a restricted schema into my notebook?", "role": "data_scientist", "level": "junior", "relevant": [{"source": "welcome.md", "heading": "Sensitive Data"}]}
+{"id": "all-06", "question": "What is the name of my personal development schema?", "role": "data_engineer", "level": "junior", "relevant": [{"source": "data_platform.md", "heading": "Environments"}]}
+{"id": "all-07", "question": "Which warehouse layer should dashboards read from?", "role": "data_analyst", "level": "junior", "relevant": [{"source": "data_platform.md", "heading": "Warehouse Layers"}]}
+{"id": "all-08", "question": "How should I name a fact table and timestamp columns?", "role": "data_engineer", "level": "mid", "relevant": [{"source": "data_platform.md", "heading": "Naming Conventions"}]}
+{"id": "all-09", "question": "What do I do if a table in the catalog has no owner?", "role": "data_scientist", "level": "senior", "relevant": [{"source": "data_platform.md", "heading": "Data Catalog"}]}
+{"id": "sql-01", "question": "Should I use nested subqueries or CTEs?", "role": "data_analyst", "level": "junior", "relevant": [{"source": "sql_style.md", "heading": "Style Rules"}]}
+{"id": "sql-02", "question": "What do reviewers look for when they review a model change?", "role": "data_engineer", "level": "mid", "relevant": [{"source": "sql_style.md", "heading": "Query Review"}]}
+{"id": "sql-03", "question": "My query was blocked for scanning too much data, what should I do?", "role": "data_analyst", "level": "mid", "relevant": [{"source": "sql_style.md", "heading": "Cost Limits"}]}
+{"id": "de-01", "question": "How many times does a failing task retry before someone is paged?", "role": "data_engineer", "level": "junior", "relevant": [{"source": "pipelines.md", "heading": "Retries and Alerts"}]}
+{"id": "de-02", "question": "When am I allowed to run a backfill?", "role": "data_engineer", "level": "mid", "relevant": [{"source": "pipelines.md", "heading": "Backfills"}]}
+{"id": "de-03", "question": "A uniqueness test failed because the source is late. Can I delete the test?", "role": "data_engineer", "level": "junior", "relevant": [{"source": "pipelines.md", "heading": "Data Quality Checks"}]}
+{"id": "de-04", "question": "When do engineers join the on-call rotation?", "role": "data_engineer", "level": "mid", "relevant": [{"source": "pipelines.md", "heading": "On-Call Rotation"}]}
+{"id": "de-05", "question": "When is a streaming job approved instead of batch?", "role": "data_engineer", "level": "senior", "relevant": [{"source": "platform_architecture.md", "heading": "Batch Versus Streaming"}]}
+{"id": "de-06", "question": "How are breaking schema changes to event streams handled?", "role": "data_engineer", "level": "senior", "relevant": [{"source": "platform_architecture.md", "heading": "Data Contracts"}]}
+{"id": "de-07", "question": "Who owns warehouse spend for scheduled workloads?", "role": "data_engineer", "level": "senior", "relevant": [{"source": "platform_architecture.md", "heading": "Cost Governance"}]}
+{"id": "ds-01", "question": "What must I log for every training run?", "role": "data_scientist", "level": "junior", "relevant": [{"source": "ml_workflow.md", "heading": "Experiment Tracking"}]}
+{"id": "ds-02", "question": "What causes training and serving skew with features?", "role": "data_scientist", "level": "mid", "relevant": [{"source": "ml_workflow.md", "heading": "Feature Store"}]}
+{"id": "ds-03", "question": "How should I split data for a forecasting model evaluation?", "role": "data_scientist", "level": "junior", "relevant": [{"source": "ml_workflow.md", "heading": "Offline Evaluation"}]}
+{"id": "ds-04", "question": "How much traffic does a canary get and for how long?", "role": "data_scientist", "level": "senior", "relevant": [{"source": "ml_deployment.md", "heading": "Deployment Paths"}]}
+{"id": "ds-05", "question": "What population stability index threshold triggers a drift alert?", "role": "data_scientist", "level": "senior", "relevant": [{"source": "ml_deployment.md", "heading": "Monitoring and Drift"}]}
+{"id": "ds-06", "question": "How do I roll back a model that hurts the business metric?", "role": "data_scientist", "level": "senior", "relevant": [{"source": "ml_deployment.md", "heading": "Rollback"}]}
+{"id": "da-01", "question": "Can I compute conversion rate myself inside the BI tool?", "role": "data_analyst", "level": "junior", "relevant": [{"source": "dashboards.md", "heading": "Metric Layer"}]}
+{"id": "da-02", "question": "When does an unused dashboard get archived?", "role": "data_analyst", "level": "mid", "relevant": [{"source": "dashboards.md", "heading": "Dashboard Standards"}]}
+{"id": "da-03", "question": "My number differs from the official dashboard, what should I do before sharing it?", "role": "data_analyst", "level": "junior", "relevant": [{"source": "dashboards.md", "heading": "Checking Your Numbers"}]}
+{"id": "da-04", "question": "How should quarterly forecasts be published?", "role": "data_analyst", "level": "senior", "relevant": [{"source": "analytics_strategy.md", "heading": "Forecasting"}]}
+{"id": "da-05", "question": "What do I check when reviewing an A/B test readout?", "role": "data_analyst", "level": "senior", "relevant": [{"source": "analytics_strategy.md", "heading": "Experimentation Reviews"}]}
