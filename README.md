@@ -9,7 +9,7 @@
 ![Hybrid recall@5](https://img.shields.io/badge/Hybrid_recall%405-1.000-1F3864?style=for-the-badge)
 ![Hybrid MRR](https://img.shields.io/badge/Hybrid_MRR-0.983_%28filtered%29-2E5FD9?style=for-the-badge)
 ![CLI](https://img.shields.io/badge/CLI-6_commands-6E86E8?style=for-the-badge)
-![Tests](https://img.shields.io/badge/Tests-56_passing-3DA35B?style=for-the-badge)
+![Tests](https://img.shields.io/badge/Tests-55_passing-3DA35B?style=for-the-badge)
 ![Offline demo](https://img.shields.io/badge/Offline_demo-Yes-F5C542?style=for-the-badge)
 ![License](https://img.shields.io/badge/License-MIT-A0399B?style=for-the-badge)
 
@@ -112,7 +112,7 @@ onboardiq gives each of these questions its own component. A metadata filter, hy
 | Offline mode | The hashing embedder and the echo chat model. All commands and all tests run with no key and no network |
 | Safety | No evidence means no chat model call. Each citation points to a passage that the chat model saw. The UI escapes all HTML |
 | Interfaces | The `onboardiq` CLI (6 commands) and a Streamlit UI |
-| Tests | **56** unit tests (`pytest`) |
+| Tests | **56** unit tests (`pytest`). CI: 55 passed, 1 skipped (`tests/test_app.py` needs Streamlit) |
 
 ```mermaid
 flowchart LR
@@ -691,7 +691,8 @@ All results come from the offline providers on the sample documents, measured on
 
 | Validation | Result | Command |
 |---|---|---|
-| Unit tests | **56 passed** (local, with Streamlit installed) | `pytest -q` |
+| Unit tests in CI (Python 3.11, `.[dev]`) | **55 passed, 1 skipped** (`tests/test_app.py` needs Streamlit) | `.github/workflows/ci.yml` |
+| Unit tests (local, with the `ui` extra) | **56 passed** | `pytest -q` |
 | Index build | 36 chunks from 9 documents, embedder `hashing-512` | `onboardiq index` |
 | Index reuse | Second run: `up to date (reused cached index)` | `onboardiq index` |
 | Grounded answer | Two citations, from `welcome.md` and `data_platform.md` | `onboardiq ask "Who approves production write access?" --role data_engineer --level junior` |
