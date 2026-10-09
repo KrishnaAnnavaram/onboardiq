@@ -68,6 +68,7 @@ This README is the **one location that explains all of onboardiq**. It gives the
 4. 🔄 [The end-to-end workflow](#4-the-end-to-end-workflow)
    - 4.1 [Full flow](#41-full-flow)
    - 4.2 [The life cycle of one question](#42-the-life-cycle-of-one-question)
+   - 4.3 [Who does which step](#43-who-does-which-step)
 5. 🔵 [The document loader and the splitter](#5-the-document-loader-and-the-splitter)
 6. 🟢 [The index](#6-the-index)
 7. 🟣 [Retrieval and fusion](#7-retrieval-and-fusion)
@@ -151,6 +152,33 @@ flowchart LR
 | CLI | `src/onboardiq/cli.py` | The `onboardiq` command |
 | UI | `src/onboardiq/app.py` | The Streamlit app |
 
+```mermaid
+flowchart TB
+    CLI["cli.py<br/>onboardiq command"] --> SVC["service.py<br/>Assistant"]
+    UI["app.py<br/>Streamlit UI"] --> SVC
+    CLI --> FB["feedback/store.py<br/>FeedbackStore"]
+    UI --> FB
+    CLI --> EV["eval/runner.py<br/>evaluate"]
+    CLI --> RND["render.py"]
+    UI --> RND
+    SVC --> CFG["config.py<br/>Settings"]
+    SVC --> PRV["providers/<br/>make_embedder, make_llm"]
+    SVC --> IDX["index/store.py<br/>build_or_load"]
+    SVC --> HR["retrieve/hybrid.py<br/>HybridRetriever"]
+    SVC --> ANS["generate/answer.py<br/>Answerer"]
+    IDX --> ING["ingest/<br/>loaders.py, chunking.py"]
+    IDX --> BM["retrieve/bm25.py"]
+    HR --> FIL["retrieve/filters.py"]
+    HR --> BM
+    HR --> VEC["retrieve/vector.py"]
+    HR --> FUS["retrieve/fusion.py"]
+    BM --> TXT["retrieve/text.py<br/>tokenize"]
+    ANS --> HR
+    ANS --> PR["generate/prompts.py"]
+    ANS --> CIT["generate/citations.py"]
+    EV --> HR
+```
+
 ### 2.2 System context
 
 ```mermaid
@@ -196,6 +224,18 @@ onboardiq/
 ### 3.1 One retrieval, one chat model call, one set of passages
 `Answerer.ask` in `generate/answer.py` retrieves once and calls the chat model at most once. The hits of that retrieval are the numbered passages in the prompt. Citation validation accepts only the numbers of these passages.
 
+```mermaid
+flowchart LR
+    Q[/"Question"/] --> R["retriever.retrieve,<br/>one time"]
+    R --> H["Hits 1 to k"]
+    H --> P["Numbered passages<br/>in the prompt"]
+    P --> L["llm.complete,<br/>one call at most"]
+    L --> V{"Marker n<br/>in 1 to k?"}
+    H --> V
+    V -- "yes" --> C[/"Citation of hit n"/]
+    V -- "no" --> X["Remove the marker"]
+```
+
 ### 3.2 No evidence, no chat model call
 `has_evidence` in `retrieve/hybrid.py` checks the hits before generation. If no hit shares a token with the question and no hit has a cosine score of `ONBOARDIQ_MIN_SIMILARITY` or more, onboardiq returns the refusal. The chat model gets no prompt in that case.
 
@@ -224,36 +264,67 @@ With no environment variables, `make_embedder` and `make_llm` in `providers/__in
 ### 4.1 Full flow
 
 ```mermaid
-flowchart TB
+flowchart TD
     subgraph build["onboardiq index"]
-        D["Documents + front-matter"] --> S["Split: sections, chunks, overlap, duplicate removal"]
+        D[/"Documents with front-matter"/] --> S["Split: sections, chunks,<br/>overlap, duplicate removal"]
         S --> EMB["Embedder"]
         S --> BM["BM25 statistics"]
-        EMB --> IDX["Index: chunks.jsonl, bm25.json, vectors.npy, manifest.json"]
+        EMB --> IDX[("Index: chunks.jsonl, bm25.json,<br/>vectors.npy, manifest.json")]
         BM --> IDX
     end
-    subgraph answer["onboardiq ask / chat / ui"]
-        Q["Question + role + level"] --> FIL["Metadata filter"]
+    subgraph answer["onboardiq ask, chat or ui"]
+        Q[/"Question, role, level"/] --> FIL["Metadata filter"]
         IDX --> FIL
         FIL --> L["BM25 candidates"]
         FIL --> V["Vector candidates"]
-        L --> RRF["Fusion (RRF)"]
+        L --> RRF["Fusion, RRF"]
         V --> RRF
         RRF --> EV{"Evidence check"}
-        EV -->|"fail"| REF["Refusal, no chat model call"]
-        EV -->|"pass"| P["Prompt: system + history window + numbered passages"]
+        EV -- "fail" --> REF[/"Refusal, no chat model call"/]
+        EV -- "pass" --> P["Prompt: system, history window,<br/>numbered passages"]
         P --> LLM["Chat model"]
-        LLM --> CIT["Citation validation + source list"]
+        LLM --> CIT["Citation validation, source list"]
     end
-    CIT --> UI["Escaped output"]
-    UI --> FBK["Feedback store (explicit submit)"]
+    CIT --> UI[/"Escaped output"/]
+    UI --> HUM{{"HUMAN<br/>Rates the answer, explicit submit"}}
+    REF --> HUM
+    HUM --> FBK[("Feedback store, SQLite")]
     subgraph evaluation["onboardiq eval"]
-        GS["Golden set"] --> M["recall@1/3/5 + MRR per retriever"]
+        GS[/"Golden set"/] --> M["recall@1, 3, 5 and MRR<br/>for each retriever"]
     end
     IDX --> M
+    M --> REP[/"Two metric tables"/]
+
+    classDef human fill:#fff3cd,stroke:#b8901f,color:#3d2f00,font-weight:bold
+    class HUM human
 ```
 
 ### 4.2 The life cycle of one question
+
+```mermaid
+stateDiagram-v2
+    state "Question received" as Received
+    state "Positions filtered" as Filtered
+    state "Hits ready" as Hits
+    state "Refused" as Refused
+    state "Prompt built" as Prompted
+    state "Reply received" as Reply
+    state "Answer with citations" as Answered
+    state "Feedback row" as Rated
+    [*] --> Received: ask(question, role, level, history)
+    Received --> Filtered: normalize_tag, filter_positions
+    Filtered --> Refused: empty question or no allowed position
+    Filtered --> Hits: BM25 and vector candidates, RRF, first top_k
+    Hits --> Refused: has_evidence is false
+    Hits --> Prompted: build_messages
+    Prompted --> Reply: llm.complete, one call
+    Reply --> Answered: resolve_citations
+    Answered --> Rated: the user submits a rating
+    Refused --> Rated: the user submits a rating
+    Answered --> [*]
+    Refused --> [*]
+    Rated --> [*]
+```
 
 1. The user sends a question with a role and a level from the CLI or the UI.
 2. `Assistant` loads the index. If the fingerprint changed, it builds the index again first.
@@ -268,11 +339,70 @@ flowchart TB
 11. The CLI prints the answer and the source list. The UI escapes them first.
 12. The user can submit a rating. The feedback store writes or updates one feedback row.
 
+### 4.3 Who does which step
+
+This sequence shows one `onboardiq ask` command with the offline providers.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor U as User
+    participant CLI as onboardiq ask
+    participant AS as Assistant
+    participant IX as index/store.py
+    participant AN as Answerer
+    participant HR as HybridRetriever
+    participant EM as Embedder
+    participant LLM as Chat model
+
+    U->>CLI: onboardiq ask question --role --level
+    CLI->>AS: Assistant(Settings.from_env)
+    AS->>IX: build_or_load(docs_dir, index_dir, embedder)
+    IX-->>AS: IndexStore and the rebuilt flag
+    CLI->>AS: ask(question, role, level)
+    AS->>AN: ask
+    AN->>HR: retrieve(question, k, role, level)
+    HR->>HR: filter_positions, then bm25.search
+    HR->>EM: embed the question
+    EM-->>HR: query vector
+    HR->>HR: cosine_search, then reciprocal_rank_fusion
+    HR-->>AN: RetrievalResult with hits
+    AN->>AN: has_evidence
+    alt no evidence
+        AN-->>AS: Answer with refused true
+    else evidence
+        AN->>LLM: complete(messages)
+        LLM-->>AN: text with markers
+        AN->>AN: resolve_citations
+        AN-->>AS: Answer with citations
+    end
+    AS-->>CLI: Answer
+    CLI-->>U: answer_plain, the text and the source list
+```
+
 ---
 
 ## 5. The document loader and the splitter
 
 **Purpose.** Change the documents in the document folder into chunks with role, level and topic tags.
+
+```mermaid
+flowchart TD
+    DIR[/"Document folder"/] --> FIND["iter_document_paths: rglob, sorted,<br/>.md .markdown .txt .pdf, skip README.md"]
+    FIND --> KIND{"PDF?"}
+    KIND -- "yes" --> PDF["_read_pdf: pypdf page text,<br/>no front-matter"]
+    KIND -- "no" --> FM["parse_front_matter:<br/>key and value lines"]
+    PDF --> EMPTY{"Body empty?"}
+    FM --> EMPTY
+    EMPTY -- "yes" --> DROP["Remove the document"]
+    EMPTY -- "no" --> SEC["split_sections: headings level 1 to 6,<br/>not in code fences"]
+    SEC --> PACK["pack_section: paragraphs, _split_long<br/>at sentence ends, then at spaces"]
+    PACK --> OVL["Start the next chunk<br/>with the overlap, _tail"]
+    OVL --> TAG["chunk_document: role, level, topic tags,<br/>chunk_id doc_id-NNN"]
+    TAG --> DUP{"content_key<br/>seen before?"}
+    DUP -- "yes" --> SKIP["Drop the chunk"]
+    DUP -- "no" --> OUT[/"Chunk list"/]
+```
 
 | Input | Output |
 |---|---|
@@ -310,6 +440,23 @@ flowchart TB
 
 **Purpose.** Embed the chunks once, save the result and reuse it while the corpus and the settings do not change.
 
+```mermaid
+flowchart TD
+    IN[/"docs_dir, index_dir, embedder,<br/>chunk settings, force"/] --> MAN{"manifest.json<br/>present and valid JSON?"}
+    MAN -- "no" --> BUILD
+    MAN -- "yes" --> F{"force false, format 1<br/>and fingerprint equal?"}
+    F -- "yes" --> LOAD["IndexStore.load"]
+    F -- "no" --> BUILD["build_index: load_folder,<br/>chunk_corpus"]
+    BUILD --> TXT["Text of each chunk:<br/>heading path, new line, text"]
+    TXT --> EMB["embedder.embed: one call"]
+    TXT --> BM["BM25Index.build"]
+    EMB --> SAVE["save: chunks.jsonl, bm25.json,<br/>vectors.npy, manifest.json"]
+    BM --> SAVE
+    SAVE --> IDX[(".index folder")]
+    SAVE --> OUT[/"IndexStore, rebuilt true"/]
+    LOAD --> OUT2[/"IndexStore, rebuilt false"/]
+```
+
 | Input | Output |
 |---|---|
 | The chunks, the embedder, `ONBOARDIQ_CHUNK_SIZE`, `ONBOARDIQ_CHUNK_OVERLAP` | The index folder with `chunks.jsonl`, `bm25.json`, `vectors.npy`, `manifest.json` |
@@ -338,6 +485,24 @@ flowchart TB
 
 **Purpose.** Find the 4 chunks that best answer the question for this role and level.
 
+```mermaid
+flowchart TD
+    IN[/"Question, role, level, k"/] --> FIL["filter_positions"]
+    FIL --> E{"Empty question or<br/>no allowed position?"}
+    E -- "yes" --> NONE[/"No hits"/]
+    E -- "no" --> BM["bm25.search: up to 20,<br/>score above 0"]
+    E -- "no" --> QV["embedder.embed the question"]
+    QV --> CS["cosine_search: up to 20"]
+    BM --> MODE{"mode"}
+    CS --> MODE
+    MODE -- "hybrid" --> RRF["reciprocal_rank_fusion, k 60"]
+    MODE -- "bm25 or vector" --> ONE["One list only"]
+    RRF --> TOP["First k entries"]
+    ONE --> TOP
+    TOP --> COS["Cosine score for the<br/>hits from BM25 only"]
+    COS --> OUT[/"RetrievalResult:<br/>hits and filter stage"/]
+```
+
 | Input | Output |
 |---|---|
 | A question, a role, a level, the index | Up to `ONBOARDIQ_TOP_K` hits, each with a fused score, a BM25 score, a cosine score and the rank in each list. Also the filter stage |
@@ -356,12 +521,32 @@ flowchart TB
 
 `tokenize` in `retrieve/text.py` gives the tokens for BM25 and for the hashing embedder.
 
+```mermaid
+flowchart LR
+    T[/"Text"/] --> LOW["Lower case"]
+    LOW --> RX["Whole words: a-z and 0-9,<br/>with a + or # tail"]
+    RX --> SW{"In the<br/>56 STOPWORDS?"}
+    SW -- "yes" --> DROP["Drop the token"]
+    SW -- "no" --> ST["light_stem: ies to y,<br/>drop a final s, not ss, us, is"]
+    ST --> OUT[/"Tokens"/]
+```
+
 - It changes the text to lower case and takes whole words with the pattern `[a-z0-9]+(?:[+#][a-z0-9+#]*)?`. Thus `c++` and `c#` stay one token, and `eda` does not match in `needed`.
 - It removes 56 stopwords, for example `the`, `how`, `what` and `should`.
 - It folds plurals: `retries` becomes `retry`, `dashboards` becomes `dashboard`. Words that end in `ss`, `us` or `is` do not change.
 - `TOKENIZER_VERSION = 2` is part of the fingerprint. A change to the tokenizer must increase this number.
 
 ### 7.2 The metadata filter
+
+```mermaid
+flowchart TD
+    IN[/"Chunks, role, level"/] --> NT["normalize_tag<br/>role and level"]
+    NT --> S1{"Any chunk with a role match<br/>and a level match?"}
+    S1 -- "yes" --> O1[/"Positions, stage role+level"/]
+    S1 -- "no" --> S2{"Any chunk with<br/>a role match?"}
+    S2 -- "yes" --> O2[/"Positions, stage role"/]
+    S2 -- "no" --> O3[/"All positions, stage none"/]
+```
 
 | Filter stage | Chunks that it keeps | When |
 |---|---|---|
@@ -373,12 +558,35 @@ A tag matches if the wanted tag is `all`, if the chunk has the tag `all`, or if 
 
 ### 7.3 BM25 and vector search
 
+```mermaid
+flowchart LR
+    Q[/"Question"/] --> TK["tokenize"]
+    TK --> SC["BM25 score of each allowed chunk:<br/>k1 1.5, b 0.75"]
+    SC --> POS{"Score above 0?"}
+    POS -- "yes" --> BL[/"BM25 list: top 20,<br/>ties to the earlier chunk"/]
+    POS -- "no" --> NOB["Not a candidate"]
+    Q --> EM["embedder.embed"]
+    EM --> DOT["Dot product with the allowed<br/>rows of vectors.npy"]
+    DOT --> VL[/"Vector list: top 20,<br/>stable sort"/]
+```
+
 | Search | Formula and settings | Module |
 |---|---|---|
 | BM25 | Okapi BM25, `k1 = 1.5`, `b = 0.75`, `idf = ln(1 + (N - df + 0.5) / (df + 0.5))`. Ties go to the earlier chunk | `retrieve/bm25.py` |
 | Vector | Dot product of unit vectors (cosine), exact, over the allowed rows. Stable sort | `retrieve/vector.py` |
 
 ### 7.4 Reciprocal-rank fusion
+
+```mermaid
+flowchart LR
+    BL[/"BM25 list"/] --> DUP{"Item already<br/>in this list?"}
+    VL[/"Vector list"/] --> DUP
+    DUP -- "yes" --> IGN["Count it once"]
+    DUP -- "no" --> ADD["Add 1.0 / (60 + rank)"]
+    ADD --> SUM["Sum of the parts<br/>for each chunk"]
+    SUM --> SORT["Sort by the fused score,<br/>ties to the first seen"]
+    SORT --> OUT[/"Fused list with<br/>the rank in each list"/]
+```
 
 Each list adds `weight / (60 + rank)` to each chunk in it. The rank starts at 1 and each weight is 1.0. A chunk that is in both lists gets two parts. If two chunks have the same score, the chunk that fusion saw first (the BM25 list comes first) goes first. A duplicate in one list counts once. The fusion code also accepts other weights, and the constant must be positive.
 
@@ -389,6 +597,19 @@ The evaluation and the tests also run the retriever in `bm25` mode and in `vecto
 ## 8. Answer generation and citations
 
 **Purpose.** Give an answer that uses only the passages, with a citation for each passage that it uses, or refuse.
+
+```mermaid
+flowchart TD
+    IN[/"Question, role, level, history"/] --> NT["normalize_tag"]
+    NT --> RET["retriever.retrieve,<br/>k = ONBOARDIQ_TOP_K"]
+    RET --> ID["answer_id:<br/>12 hex characters"]
+    ID --> EV{"Hits present and has_evidence:<br/>BM25 above 0 or cosine 0.15 or more?"}
+    EV -- "no" --> REF[/"Refusal text, refused true,<br/>no citations"/]
+    EV -- "yes" --> MSG["build_messages: system prompt,<br/>history window, passages"]
+    MSG --> LLM["llm.complete: one call"]
+    LLM --> CIT["resolve_citations"]
+    CIT --> OUT[/"Answer with text and citations"/]
+```
 
 | Input | Output |
 |---|---|
@@ -405,6 +626,18 @@ The evaluation and the tests also run the retriever in `bm25` mode and in `vecto
 7. Validate the markers in the reply and make the citations.
 
 ### 8.1 The prompt
+
+```mermaid
+flowchart LR
+    RL[/"Role and level tags"/] --> SYS["system_prompt: labels, 4 rules,<br/>ROLE_FOCUS, LEVEL_STYLE"]
+    HI[/"History"/] --> HW["history_window: last 3 exchanges,<br/>600 characters, markers removed"]
+    HT[/"Hits"/] --> CTX["format_context: number, heading path,<br/>chunk_id, text"]
+    QQ[/"Question"/] --> UP["user_prompt: Question line<br/>and the context block"]
+    CTX --> UP
+    SYS --> MSGS[/"Messages: system,<br/>history, user"/]
+    HW --> MSGS
+    UP --> MSGS
+```
 
 | Part | Contents |
 |---|---|
@@ -423,6 +656,27 @@ I couldn't find this in the onboarding documents available for a <level> <role>.
 
 ### 8.2 The providers
 
+```mermaid
+flowchart TD
+    S[/"Settings"/] --> E{"embed_provider"}
+    E -- "hashing, fake, offline" --> HE["HashingEmbedder<br/>hashing-512, no network"]
+    E -- "openai" --> OE["OpenAIEmbedder<br/>/embeddings, 64 texts per batch"]
+    E -- "ollama" --> LE["OllamaEmbedder<br/>/api/embed"]
+    E -- "other value" --> PE[/"ProviderError"/]
+    S --> L{"llm_provider"}
+    L -- "echo, fake, offline" --> EC["EchoLLM<br/>quotes from 2 passages"]
+    L -- "openai" --> OC["OpenAIChatLLM<br/>/chat/completions"]
+    L -- "ollama" --> LC["OllamaChatLLM<br/>/api/chat"]
+    L -- "other value" --> PE
+    OE -- "no OPENAI_API_KEY" --> PE
+    OC -- "no OPENAI_API_KEY" --> PE
+    OE --> HTTP["providers/http.py:<br/>urllib POST, timeout 120 s"]
+    LE --> HTTP
+    OC --> HTTP
+    LC --> HTTP
+    HTTP -- "HTTP error" --> PE
+```
+
 | `provider` value | Embedder | Chat model | Network call |
 |---|---|---|---|
 | `hashing` / `echo` (also `fake`, `offline`) | `HashingEmbedder`, name `hashing-512` | `EchoLLM` | None |
@@ -435,6 +689,19 @@ I couldn't find this in the onboarding documents available for a <level> <role>.
 - All HTTP calls use the Python standard library (`urllib`) with a timeout of 120 seconds. An HTTP error gives `ProviderError` with the first 300 characters of the reply.
 
 ### 8.3 Citation validation
+
+```mermaid
+flowchart TD
+    RAW[/"Reply text with markers"/] --> FIND["Find the marker groups:<br/>one number, adjacent groups, a comma list"]
+    FIND --> KEEP["Keep each number from 1 to k,<br/>remove a group that becomes empty"]
+    KEEP --> SP["Remove the extra spaces"]
+    SP --> ANY{"Any valid marker left?"}
+    ANY -- "yes" --> CIT1["One citation for each number,<br/>in the sequence of first use"]
+    ANY -- "no" --> CIT2["One citation for each passage"]
+    CIT1 --> OUT[/"Citations: marker, chunk_id, source,<br/>heading path, 160-character snippet"/]
+    CIT2 --> OUT
+    OUT --> SRC[/"Sources: list"/]
+```
 
 1. Find all marker groups: `[1]`, `[1][2]` and `[1, 2]`.
 2. Remove each number that is not the number of a passage. Remove a group that becomes empty.
@@ -449,6 +716,22 @@ Each citation holds the marker, the `chunk_id`, the source, the heading path and
 ## 9. The feedback store
 
 **Purpose.** Keep the ratings that users submit for answers.
+
+```mermaid
+flowchart TD
+    A[/"Answer and comment"/] --> H{{"HUMAN<br/>Explicit submit: UI form,<br/>or + or - in chat"}}
+    H -- "UI, no rating picked" --> W[/"Warning, nothing written"/]
+    H --> R{"Rating is helpful<br/>or not_helpful?"}
+    R -- "no" --> VE[/"ValueError"/]
+    R -- "yes" --> UP["INSERT, ON CONFLICT answer_id:<br/>update rating, comment, updated_at"]
+    UP --> DB[("feedback table in<br/>ONBOARDIQ_FEEDBACK_DB")]
+    DB --> SUM["summary: count for each rating"]
+    DB --> EXP["export_csv: all rows"]
+    EXP --> CSV[/"feedback_export.csv"/]
+
+    classDef human fill:#fff3cd,stroke:#b8901f,color:#3d2f00,font-weight:bold
+    class H human
+```
 
 | Input | Output |
 |---|---|
@@ -477,6 +760,20 @@ Each citation holds the marker, the `chunk_id`, the source, the heading path and
 
 **Purpose.** Measure how well each retriever finds the section that answers a question.
 
+```mermaid
+flowchart TD
+    GS[/"golden_set.jsonl"/] --> LG["load_golden: id, question,<br/>role, level, relevant"]
+    LG --> EMP{"relevant empty?"}
+    EMP -- "yes" --> VE[/"ValueError"/]
+    EMP -- "no" --> LOOP["For each filter setting,<br/>each mode, each question"]
+    LOOP --> RET["retriever.retrieve, k 5,<br/>role and level only with the filter"]
+    RET --> MT["matched_targets: same source,<br/>heading in the heading path"]
+    MT --> MET["recall_at_k for 1, 3, 5<br/>and reciprocal_rank"]
+    MET --> MEAN["Mean of each metric<br/>for each mode"]
+    MEAN --> TAB[/"Two tables: filtered, unfiltered"/]
+    MEAN --> JSON[/"Optional JSON file, --out"/]
+```
+
 | Input | Output |
 |---|---|
 | The golden set (`--golden`, default `eval/golden_set.jsonl`) and the index | Two tables (with and without the filter) of recall@1, recall@3, recall@5 and MRR for `bm25`, `vector` and `hybrid`. Optional JSON (`--out`) |
@@ -502,6 +799,21 @@ Each citation holds the marker, the `chunk_id`, the source, the heading path and
 
 **Purpose.** Give the user and the operator one entry point for each task.
 
+```mermaid
+flowchart LR
+    ARGS[/"onboardiq command, global<br/>--docs and --index-dir"/] --> CMD{"Command"}
+    CMD -- "index" --> IX["build_or_load,<br/>--force rebuilds"]
+    CMD -- "ask" --> ASK["Assistant.ask,<br/>plain text or --json"]
+    CMD -- "chat" --> CH["Loop: ask with history,<br/>+ or - rates, empty line stops"]
+    CMD -- "eval" --> EV["evaluate with and<br/>without the filter"]
+    CMD -- "feedback" --> FB["summary or export"]
+    CMD -- "ui" --> UI["python -m streamlit run app.py"]
+    IX --> IDX[(".index folder")]
+    ASK --> IDX
+    CH --> FBS[("Feedback store")]
+    FB --> FBS
+```
+
 | Command | Options | What it does |
 |---|---|---|
 | `onboardiq index` | `--force` | Build the index, or reuse it if the fingerprint did not change. Print the chunk count, the document count and the embedder |
@@ -515,6 +827,22 @@ The global options `--docs <folder>` and `--index-dir <folder>` come before the 
 
 **The Streamlit UI** (`app.py`) has these parts:
 
+```mermaid
+flowchart TD
+    START["get_assistant: one cached<br/>Assistant for the server process"] --> SIDE["Sidebar: role, level,<br/>chunk count, feedback counts"]
+    SIDE --> CLR{"Clear conversation<br/>clicked?"}
+    CLR -- "yes" --> RESET["Empty the turns"]
+    SIDE --> Q[/"Question from chat_input"/]
+    Q --> HIST["History from the earlier turns"]
+    HIST --> ASK["assistant.ask"]
+    ASK --> SHOW["Escaped question, answer_markdown,<br/>Retrieved passages panel"]
+    SHOW --> FORM{{"HUMAN<br/>Feedback form: Yes or No, comment"}}
+    FORM --> FB[("FeedbackStore")]
+
+    classDef human fill:#fff3cd,stroke:#b8901f,color:#3d2f00,font-weight:bold
+    class FORM human
+```
+
 1. A sidebar with the role (default Data Analyst) and the level (default Mid-level). It also shows the chunk count, the embedder name, the feedback counts and a **Clear conversation** button.
 2. A chat input. The earlier questions and answers of the session go to the history window.
 3. For each answer: the escaped question, the escaped answer, the source list and a **Retrieved passages** panel.
@@ -525,6 +853,19 @@ The UI loads the `Assistant` one time for each server process (`st.cache_resourc
 ---
 
 ## 12. The safety model
+
+```mermaid
+flowchart LR
+    Q[/"Question, role, level"/] --> F["Metadata filter:<br/>widen only on an empty set"]
+    F --> EV{"Evidence check"}
+    EV -- "fail" --> REF[/"Refusal, no model call"/]
+    EV -- "pass" --> PR["System prompt:<br/>passages are reference only"]
+    PR --> HW["History window:<br/>3 exchanges, 600 characters"]
+    HW --> LLM["Chat model"]
+    LLM --> CV["Citation validation:<br/>markers 1 to k only"]
+    CV --> ESC["render.py: html.escape"]
+    ESC --> OUT[/"Output"/]
+```
 
 | Risk | Control in the code | Module | Test |
 |---|---|---|---|
@@ -596,6 +937,19 @@ pip install -e ".[dev]"         # add ui and pdf if you need them: ".[dev,ui,pdf
 ### 14.3 Run onboardiq
 
 Run the offline demo first. It needs no key and no network.
+
+```mermaid
+flowchart LR
+    INS["pip install -e<br/>dev extra"] --> T["pytest -q"]
+    T --> IX["onboardiq index"]
+    IX --> IDX[(".index folder")]
+    IX --> ASK["onboardiq ask"]
+    IX --> CH["onboardiq chat"]
+    IX --> EV["onboardiq eval"]
+    IX --> UI["onboardiq ui<br/>ui extra"]
+    CH --> FB["onboardiq feedback<br/>summary or export"]
+    UI --> FB
+```
 
 ```bash
 pytest -q                                   # 56 tests, offline (1 skips if Streamlit is not installed)
